@@ -2,7 +2,7 @@
 # 🌱 우리 학교 극지식물 개체별 생육 차이 분석 대시보드 (2026 2회차 예시)
 #  - 1회차 실습 흐름(데이터 점검 → 환경 분석 → 개체별 차이 → 관계 분석
 #    → 잘 자란/덜 자란 개체 비교 → 예측 모델 → 결론)을 그대로 웹으로 옮긴 예시
-#  - data/ 폴더의 CSV 2개(파일명에 "환경", "생육")를 자동 인식
+#  - 사이드바에서 CSV 2개(환경·생육결과)를 업로드 (업로드가 없으면 data/ 폴더의 예시 데이터 사용)
 #  - 학교마다 열 구성이 달라도(질량·수온·CO2 추가, ph·ec 없음 등) 있는 열만 자동 분석
 #  - requirements: streamlit, pandas, numpy, plotly (scipy·statsmodels 불필요)
 # =============================================================
@@ -48,17 +48,34 @@ def style_fig(fig, height=380, title=None):
 # ─────────────────────────────────────────────
 # 데이터 로딩: NFC 정규화 + "환경"/"생육" 키워드로 인식 (학교명 하드코딩 없음)
 # ─────────────────────────────────────────────
-def read_csv_safely(path):
+def read_csv_safely(src):
+    """경로 또는 바이트를 받아 인코딩(utf-8-sig / cp949 / euc-kr)을 자동으로 맞춰 읽기."""
+    import io
     for enc in ("utf-8-sig", "cp949", "euc-kr"):
         try:
-            return pd.read_csv(path, encoding=enc)
+            return pd.read_csv(io.BytesIO(src) if isinstance(src, (bytes, bytearray)) else src, encoding=enc)
         except UnicodeDecodeError:
             continue
-    return pd.read_csv(path, encoding="utf-8", errors="replace")
+    return pd.read_csv(io.BytesIO(src) if isinstance(src, (bytes, bytearray)) else src, encoding="utf-8", encoding_errors="replace")
+
+
+def school_from_name(name):
+    """'OO고_환경데이터.csv' → 'OO고'. 파일명에 '_'와 '환경'/'생육'이 없으면 학교명을 추정하지 않음."""
+    name = unicodedata.normalize("NFC", name)
+    if "_" not in name or ("환경" not in name and "생육" not in name):
+        return None
+    prefix = name.split("_")[0].strip()
+    return prefix if prefix and "환경" not in prefix and "생육" not in prefix and not prefix.lower().endswith(".csv") else None
 
 
 @st.cache_data(show_spinner=False)
-def load_data():
+def read_uploaded(data: bytes):
+    return read_csv_safely(data)
+
+
+@st.cache_data(show_spinner=False)
+def load_folder_data():
+    """업로드가 없을 때 사용할 기본 예시 데이터(data/ 폴더, 있을 때만)."""
     data_dir = Path(__file__).parent / "data"
     env_df, growth_df, school = None, None, None
     if not data_dir.exists():
@@ -73,9 +90,7 @@ def load_data():
             growth_df = read_csv_safely(f)
         else:
             continue
-        prefix = name.split("_")[0].strip()
-        if prefix and "환경" not in prefix and "생육" not in prefix:
-            school = prefix
+        school = school_from_name(name) or school
     return env_df, growth_df, school
 
 
@@ -231,12 +246,30 @@ def csv_download(df, label, fname, key):
 # ─────────────────────────────────────────────
 # 데이터 준비
 # ─────────────────────────────────────────────
+# 1) 사이드바에서 우리 학교 CSV 2개를 업로드 (Streamlit Cloud에 data/ 폴더가 없어도 동작)
+st.sidebar.title("📁 데이터 업로드")
+st.sidebar.caption("우리 학교 CSV 2개를 올려 주세요. 파일 이름 예: OO고_환경데이터.csv, OO고_생육결과데이터.csv")
+up_env = st.sidebar.file_uploader("🌡️ 환경 데이터 CSV", type=["csv"], key="up_env")
+up_growth = st.sidebar.file_uploader("🌱 생육 결과 데이터 CSV", type=["csv"], key="up_growth")
+
 with st.spinner("데이터를 불러오는 중..."):
-    env_raw, growth_raw, school = load_data()
+    env_raw = read_uploaded(up_env.getvalue()) if up_env is not None else None
+    growth_raw = read_uploaded(up_growth.getvalue()) if up_growth is not None else None
+    school = None
+    for up in (up_growth, up_env):
+        if up is not None and school is None:
+            school = school_from_name(up.name)
+    data_source = "업로드한 파일"
+    if env_raw is None and growth_raw is None:
+        env_raw, growth_raw, school = load_folder_data()
+        data_source = "기본 예시 데이터 (data/ 폴더)"
 
 if env_raw is None and growth_raw is None:
-    st.error("data/ 폴더에서 '환경'·'생육'이 들어간 CSV 파일을 찾을 수 없습니다. 파일 이름을 확인해 주세요.")
+    st.title("🌱 극지식물 개체별 생육 차이 분석")
+    st.info("👈 왼쪽 사이드바에서 우리 학교 **환경 데이터 CSV**와 **생육 결과 데이터 CSV**를 업로드해 주세요. "
+            "두 파일 중 하나만 올려도 해당 탭은 바로 볼 수 있습니다.")
     st.stop()
+st.sidebar.caption(f"📌 사용 중인 데이터: {data_source}")
 
 school_label = school or "우리 학교"
 
@@ -282,6 +315,7 @@ root_col = find_column(growth, ["지하부길이", "지하부 길이"]) if growt
 # ─────────────────────────────────────────────
 # 사이드바
 # ─────────────────────────────────────────────
+st.sidebar.divider()
 st.sidebar.title("⚙️ 설정")
 team_hypothesis = st.sidebar.text_area(
     "📝 우리 팀의 가설 (1회차 보고서에서 가져오기)",
@@ -433,7 +467,9 @@ with tabs[2]:
         st.caption("중앙값: 크기순 한가운데 값(튀는 값에 덜 흔들림). 분산·표준편차: 평균에서 퍼진 정도. CV: 단위가 달라도 개체 간 차이를 같은 잣대로 비교하는 값.")
         stat_df = pd.DataFrame([{"항목": label_of(c), "단위": unit_of(c), **describe(growth[c])} for c in growth_cols])
         stat_df["최대/최소"] = np.where(stat_df["최소"] > 0, stat_df["최대"] / stat_df["최소"].replace(0, np.nan), np.nan)
-        st.dataframe(stat_df.rename(columns={"CV": "CV(%)"}).round(2), hide_index=True, width="stretch")
+        show_df = stat_df.rename(columns={"CV": "CV(%)"}).round(2)
+        show_df["최대/최소"] = show_df["최대/최소"].map(lambda v: "—" if pd.isna(v) else f"{v:.2f}")  # 최솟값 0이면 배수 계산 불가
+        st.dataframe(show_df, hide_index=True, width="stretch")
         top_cv = stat_df.loc[stat_df["CV"].idxmax()]
         st.info(f"👉 개체 간 차이(CV)가 가장 큰 항목: **{top_cv['항목']}** (CV {top_cv['CV']:.1f}%)")
 
