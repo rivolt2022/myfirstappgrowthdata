@@ -118,7 +118,6 @@ def load_growth(file):
 
 # ── 지표 카드 한 줄 ────────────────────────────────────────────────────────
 def metric_row(items):
-    """items: list of (label, value) 또는 (label, value, delta)"""
     cols = st.columns(len(items))
     for col, item in zip(cols, items):
         if len(item) == 3:
@@ -153,12 +152,8 @@ st.title("🔬 연송고 극지식물, 무게 차이의 비밀")
 
 # ── 사이드바: CSV 업로드 + 측정 항목 선택 ────────────────────────────────
 st.sidebar.header("📁 데이터 업로드")
-env_file = st.sidebar.file_uploader(
-    "환경 CSV (온도·습도·pH·EC 등)", type="csv"
-)
-growth_file = st.sidebar.file_uploader(
-    "생육 결과 CSV (개체별 측정값)", type="csv"
-)
+env_file = st.sidebar.file_uploader("환경 CSV (온도·습도·pH·EC 등)", type="csv")
+growth_file = st.sidebar.file_uploader("생육 결과 CSV (개체별 측정값)", type="csv")
 
 st.sidebar.header("📏 생육 측정 항목")
 growth_cols = []
@@ -180,7 +175,6 @@ elif growth_file is not None:
 if school:
     st.sidebar.success(f"✅ {school} 데이터 로드 완료")
 
-# ── 탭 ───────────────────────────────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(["📋 실험 개요", "🌡️ 환경 데이터", "🌱 생육 결과"])
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -269,16 +263,14 @@ with tab1:
                 if "지상부 길이" in growth_df.columns:
                     sub = growth_df[["지상부 길이", "생중량"]].dropna()
                     if len(sub) >= 2:
-                        r_above = sub["지상부 길이"].corr(sub["생중량"])
                         r_items.append(
-                            ("지상부 길이 ↔ 생중량 (r)", f"{r_above:.3f}")
+                            ("지상부 길이 ↔ 생중량 (r)", f"{sub['지상부 길이'].corr(sub['생중량']):.3f}")
                         )
                 if "지하부 길이" in growth_df.columns:
                     sub = growth_df[["지하부 길이", "생중량"]].dropna()
                     if len(sub) >= 2:
-                        r_below = sub["지하부 길이"].corr(sub["생중량"])
                         r_items.append(
-                            ("지하부 길이 ↔ 생중량 (r)", f"{r_below:.3f}")
+                            ("지하부 길이 ↔ 생중량 (r)", f"{sub['지하부 길이'].corr(sub['생중량']):.3f}")
                         )
             if r_items:
                 metric_row(r_items)
@@ -299,7 +291,6 @@ with tab2:
         if env_df.empty:
             st.info("📌 환경 CSV를 업로드하면 온도·습도·pH·EC 그래프가 표시됩니다.")
         else:
-            # ── 일별 평균 온도·습도 꺾은선 ──────────────────────────
             st.subheader("🌡️ 일별 평균 온도·습도 변화")
             if "time" in env_df.columns and "temperature" in env_df.columns:
                 temp_cols = [c for c in ["temperature", "humidity"] if c in env_df.columns]
@@ -347,7 +338,6 @@ with tab2:
             else:
                 st.info("시간(time) 또는 온도(temperature) 열이 없어 그래프를 표시할 수 없어요.")
 
-            # ── pH · EC 서브플롯 ────────────────────────────────────
             st.subheader("🧪 pH · EC 변화 (서브플롯)")
             ph_ec_cols = [c for c in ["ph", "ec"] if c in env_df.columns]
             if "time" in env_df.columns and ph_ec_cols:
@@ -418,6 +408,7 @@ with tab3:
                     )
                     top5 = ranked.head(5)
                     bot5 = ranked.tail(5)
+                    # 🔸 수정: 이미 list이므로 .tolist() 재호출 금지
                     top5_ids = top5["개체번호"].tolist()
                     bot5_ids = bot5["개체번호"].tolist()
                     top5_vals = top5[gw_col].tolist()
@@ -427,12 +418,9 @@ with tab3:
                     fig_bar.add_trace(
                         go.Bar(
                             x=[str(x) for x in top5_ids],
-                            y=top5_vals.tolist(),
+                            y=top5_vals,          # 🔸 수정: top5_vals.tolist() → top5_vals
                             name="상위 5개체",
-                            marker=dict(
-                                color="#27ae60",
-                                line=dict(width=1, color="white"),
-                            ),
+                            marker=dict(color="#27ae60", line=dict(width=1, color="white")),
                             text=[f"{v:.2f}g" for v in top5_vals],
                             textposition="outside",
                         )
@@ -440,12 +428,9 @@ with tab3:
                     fig_bar.add_trace(
                         go.Bar(
                             x=[str(x) for x in bot5_ids],
-                            y=bot5_vals.tolist(),
+                            y=bot5_vals,          # 🔸 수정: bot5_vals.tolist() → bot5_vals
                             name="하위 5개체",
-                            marker=dict(
-                                color="#e74c3c",
-                                line=dict(width=1, color="white"),
-                            ),
+                            marker=dict(color="#e74c3c", line=dict(width=1, color="white")),
                             text=[f"{v:.2f}g" for v in bot5_vals],
                             textposition="outside",
                         )
@@ -502,7 +487,7 @@ with tab3:
                     fig_box = go.Figure()
                     fig_box.add_trace(
                         go.Box(
-                            y=growth_df[gw_col].dropna().tolist(),
+                            y=gw.tolist(),       # 🔸 gw는 이미 list (dropna().tolist() 결과)
                             fillcolor="#8e44ad",
                             line=dict(color="white"),
                             name="전체 개체",
@@ -547,7 +532,9 @@ with tab3:
                                         opacity=0.85,
                                     ),
                                     name="개체",
-                                    hovertemplate=f"{item_col}: %{{x:.1f}}<br>생중량: %{{y:.2f}}g<extra></extra>",
+                                    hovertemplate=(
+                                        f"{item_col}: %{{x:.1f}}<br>생중량: %{{y:.2f}}g<extra></extra>"
+                                    ),
                                 )
                             )
                             add_trendline(fig_sc, sub[item_col], sub[gw_col])
